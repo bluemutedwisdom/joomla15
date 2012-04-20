@@ -1,0 +1,77 @@
+#!/bin/sh -ex
+
+ADMIN_NAME=admin
+ADMIN_PASS=turnkey
+ADMIN_MAIL=admin@example.com
+
+DB_PREFIX=jos_
+DB_NAME=joomla
+DB_USER=joomla
+DB_PASS=$(mcookie)
+
+WEBROOT=/var/www/joomla
+mkdir -p $WEBROOT
+
+# unpack tarball to webroot and set permissions
+unzip /usr/local/src/Joomla*.zip -d $WEBROOT
+rm -f /usr/local/src/Joomla*
+chown -R www-data:www-data $WEBROOT
+
+# convenience execution variables
+MYSQL_BATCH="mysql --user=root --password=$MYSQL_PASS --batch"
+MYSQL_ADMIN="mysqladmin --user=root --password=$MYSQL_PASS"
+
+# start mysql server
+/etc/init.d/mysql start
+
+# create database
+$MYSQL_ADMIN create $DB_NAME
+
+# create database user with privileges on the database
+$MYSQL_BATCH --execute "grant all privileges on $DB_NAME.* to $DB_USER@localhost identified by '$DB_PASS'; flush privileges;"
+
+# create configuration file for installer to configure
+CONF=$WEBROOT/configuration.php
+touch $CONF
+chown www-data:www-data $CONF
+
+# update apache configuration
+a2dissite default
+a2ensite joomla
+a2enmod rewrite
+
+# perform installation
+/etc/init.d/apache2 start
+
+EMAIL=$(echo $ADMIN_MAIL | sed s/@/%40/)
+
+URL="http://127.0.0.1/installation/index.php"
+CURL="curl -c /tmp/cookie -b /tmp/cookie"
+
+$CURL $URL
+$CURL $URL --data "vars%5Blang%5D=en-US&task=preinstall"
+$CURL $URL --data "task=license"
+$CURL $URL --data "task=dbconfig"
+$CURL $URL --data  "vars%5BDBtype%5D=mysql&vars%5BDBhostname%5D=localhost&vars%5BDBuserName%5D=$DB_USER&vars%5BDBpassword%5D=$DB_PASS&vars%5BDBname%5D=$DB_NAME&vars%5BDBOld%5D=rm&vars%5BDBPrefix%5D=$DB_PREFIX&vars%5Blang%5D=en-US&task=makedb&vars%5BftpEnable%5D=0" 
+$CURL $URL --data "vars%5BftpEnable%5D=0&vars%5BftpUser%5D=&vars%5BftpPassword%5D=&vars%5BftpRoot%5D=&vars%5BftpHost%5D=127.0.0.1&vars%5BftpPort%5D=21&vars%5BftpSavePass%5D=0&task=mainconfig&lang=en-US"
+$CURL $URL --data "vars%5BsiteName%5D=TurnKey+Joomla&vars%5BadminEmail%5D=$EMAIL&vars%5BadminPassword%5D=$ADMIN_PASS&vars%5BconfirmAdminPassword%5D=$ADMIN_PASS&task=saveconfig"
+
+# remove installation directory
+rm -rf $WEBROOT/installation
+
+# enable clean urls
+mv $WEBROOT/htaccess.txt $WEBROOT/.htaccess
+sed -i "s|^# RewriteBase /|RewriteBase /|" $WEBROOT/.htaccess
+sed -i "s|sef           = '0'|sef           = '1'|" $CONF
+sed -i "s|sef_rewrite   = '0'|sef_rewrite   = '1'|" $CONF
+
+# create welcome article on frontpage with login credentials
+$MYSQL_BATCH --database=$DB_NAME --execute "insert into ${DB_PREFIX}content values (1,'Welcome to Joomla\!','welcome-to-joomla','','<h2>Getting started</h2><p></p><ul><li>Log into the <a href=\"administrator\">administration console</a> as <strong>admin</strong></li> <li>Refer to the <a href=\"http://www.turnkeylinux.org/joomla15\">TurnKey Joomla release notes</a></li><li>Refer to the <a href=\"http://docs.joomla.org\">Joomla documentation</a></li></ul><p></p>','',1,0,0,0,'2008-01-01 01:00:00',62,'','0000-00-00 00:00:00',0,62,'2008-01-11 01:00:00','2008-01-01 01:00:00','0000-00-00 00:00:00','','','show_title=\nlink_titles=\nshow_intro=\nshow_section=\nlink_section=\nshow_category=\nlink_category=\nshow_vote=\nshow_author=\nshow_create_date=\nshow_modify_date=\nshow_pdf_icon=\nshow_print_icon=\nshow_email_icon=\nlanguage=\nkeyref=\nreadmore=',1,0,1,'','',0,0,'robots=\nauthor='); insert into ${DB_PREFIX}content_frontpage values (1,1);"
+
+# set default theme to ja_purity (more attractive, better for apache-credit)
+$MYSQL_BATCH --database=$DB_NAME --execute "update ${DB_PREFIX}templates_menu set template = 'ja_purity' where client_id = 0;"
+
+# stop services
+/etc/init.d/apache2 stop
+/etc/init.d/mysql stop
+
