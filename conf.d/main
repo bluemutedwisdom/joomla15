@@ -75,3 +75,6 @@ $MYSQL_BATCH --database=$DB_NAME --execute "update ${DB_PREFIX}templates_menu se
 /etc/init.d/apache2 stop
 /etc/init.d/mysql stop
 
+# cleanup
+rm -f /tmp/cookie
+
