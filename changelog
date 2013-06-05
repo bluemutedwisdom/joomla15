@@ -4,7 +4,7 @@ turnkey-joomla15-12.1 (1) turnkey; urgency=low
 
   * Hardcoded component versions:
 
-    joomla          1.2.26
+    joomla          1.5.26
 
   * Note: Please refer to turnkey-core's changelog for changes common to all
     appliances. Here we only describe changes specific to this appliance.
